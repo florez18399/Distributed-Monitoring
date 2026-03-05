@@ -30,7 +30,7 @@
   
   <property>
     <name>net.topology.script.file.name</name>
-    <value>/opt/hadoop/etc/hadoop/topology.sh</value>
+    <value>/etc/hadoop/custom/topology.sh</value>
   </property>
   <property>
     <name>dfs.namenode.topology.resolution.use.client.hostname</name>

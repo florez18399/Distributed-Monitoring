@@ -19,9 +19,9 @@ services:
       KAFKA_PROCESS_ROLES: broker,controller
       KAFKA_CONTROLLER_QUORUM_VOTERS: 1@broker:29093
       
-      KAFKA_LISTENERS: PLAINTEXT://broker:29092,CONTROLLER://broker:29093,PLAINTEXT_HOST://0.0.0.0:9092
+      KAFKA_LISTENERS: PLAINTEXT://0.0.0.0:29092,CONTROLLER://broker:29093,PLAINTEXT_HOST://0.0.0.0:9092
       
-      KAFKA_ADVERTISED_LISTENERS: PLAINTEXT://broker:29092,PLAINTEXT_HOST://localhost:${KAFKA_PORT_EXT}
+      KAFKA_ADVERTISED_LISTENERS: PLAINTEXT://${ZONE_ID}-broker:29092,PLAINTEXT_HOST://localhost:${KAFKA_PORT_EXT}
       
       KAFKA_LISTENER_SECURITY_PROTOCOL_MAP: PLAINTEXT:PLAINTEXT,PLAINTEXT_HOST:PLAINTEXT,CONTROLLER:PLAINTEXT
       KAFKA_INTER_BROKER_LISTENER_NAME: PLAINTEXT
@@ -30,9 +30,20 @@ services:
       KAFKA_GROUP_INITIAL_REBALANCE_DELAY_MS: 0
       KAFKA_TRANSACTION_STATE_LOG_MIN_ISR: 1
       KAFKA_TRANSACTION_STATE_LOG_REPLICATION_FACTOR: 1
-      KAFKA_LOG_DIRS: /tmp/kraft-combined-logs
+      
+      # Persistencia y Retención (Resiliencia + Control de espacio)
+      KAFKA_LOG_DIRS: /var/lib/kafka/data
+      KAFKA_LOG_RETENTION_HOURS: 2
+      KAFKA_LOG_RETENTION_CHECK_INTERVAL_MS: 300000
+      KAFKA_LOG_SEGMENT_BYTES: 10485760
+      KAFKA_LOG_RETENTION_BYTES: 524288000
+      KAFKA_AUTO_CREATE_TOPICS_ENABLE: "true"
+      KAFKA_DELETE_TOPIC_ENABLE: "true"
+      
       CLUSTER_ID: MkU3OEVBNTcwNTJENDM2Qk
-    
+    volumes:
+      - kafka_data:/var/lib/kafka/data
+
   kafka-consumer:
     image: apache/kafka:latest
     container_name: ${ZONE_ID}-consumer-test
@@ -49,3 +60,7 @@ services:
       /opt/kafka/bin/kafka-console-consumer.sh --bootstrap-server broker:29092 --topic envoy-logs --from-beginning"
     depends_on:
       - broker
+
+volumes:
+  kafka_data:
+    driver: local

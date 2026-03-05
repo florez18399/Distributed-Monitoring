@@ -186,21 +186,20 @@ router.get('/api/secure-data', simulateLatency, (req, res) => {
   });
 });
 
-// Montar el router en el path base /app_1
-app.use('/app_2', router);
-
+const APP_PATH = process.env.APP_PATH || '/app_2';
+app.use(APP_PATH, router);
 
 // Iniciar el servidor
 app.listen(PORT, () => {
   console.log(`Express server listening on port ${PORT}`);
   console.log('--- API Endpoints ---');
-  console.log(`GET    http://localhost:${PORT}/app_1/products`);
-  console.log(`GET    http://localhost:${PORT}/app_1/products?category=...&minPrice=...`);
-  console.log(`GET    http://localhost:${PORT}/app_1/products/1`);
-  console.log(`POST   http://localhost:${PORT}/app_1/products`);
-  console.log(`PUT    http://localhost:${PORT}/app_1/products/1`);
-  console.log(`DELETE http://localhost:${PORT}/app_1/products/1`);
-  console.log(`GET    http://localhost:${PORT}/app_1/api/health`);
-  console.log(`GET    http://localhost:${PORT}/app_1/api/secure-data (requires 'x-api-key' header)`);
+  console.log(`GET    http://localhost:${PORT}${APP_PATH}/products`);
+  console.log(`GET    http://localhost:${PORT}${APP_PATH}/products?category=...&minPrice=...`);
+  console.log(`GET    http://localhost:${PORT}${APP_PATH}/products/1`);
+  console.log(`POST   http://localhost:${PORT}${APP_PATH}/products`);
+  console.log(`PUT    http://localhost:${PORT}${APP_PATH}/products/1`);
+  console.log(`DELETE http://localhost:${PORT}${APP_PATH}/products/1`);
+  console.log(`GET    http://localhost:${PORT}${APP_PATH}/api/health`);
+  console.log(`GET    http://localhost:${PORT}${APP_PATH}/api/secure-data (requires 'x-api-key' header)`);
   console.log('---------------------');
 });

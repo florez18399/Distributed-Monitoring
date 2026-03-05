@@ -1,0 +1,4 @@
+Flask==3.0.2
+trino==0.328.0
+gunicorn==21.2.0
+python-dotenv==1.0.1

@@ -22,6 +22,7 @@ services:
     environment:
       - APP_NAME=${APP_NAME}
       - ZONE_ID=${ZONE_ID}
+      - APP_PATH=/${APP_NAME}
       - PORT=8080
     restart: unless-stopped
 

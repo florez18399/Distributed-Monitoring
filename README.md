@@ -6,87 +6,73 @@ Este proyecto implementa un pipeline de datos de extremo a extremo para la recol
 
 El flujo de datos a través del sistema es el siguiente:
 
-1.  **Productor de Trazas (`simple-server`)**: Una aplicación de servidor que, a través de un interceptor, captura cada solicitud HTTP y envía los detalles como un mensaje a un tema de Kafka.
-2.  **Broker de Mensajería (`Kafka`)**: Actúa como un búfer centralizado y resiliente, recibiendo las trazas en el tópico `envoy-logs`. Desacopla al productor de los consumidores.
-3.  **Procesamiento en Streaming (`Spark`)**: Una aplicación de Spark Structured Streaming se suscribe al tópico de Kafka, procesa los mensajes en micro-lotes y los escribe en formato Parquet en el sistema de archivos distribuido HDFS.
-4.  **Almacenamiento Distribuido (`Hadoop HDFS`)**: HDFS proporciona un almacenamiento escalable y tolerante a fallos para los archivos Parquet, que contienen los datos de trazas estructurados. El clúster está configurado con `rack awareness` para mejorar la resiliencia de los datos.
-5.  **Consulta Federada (`Trino` + `Hive Metastore`)**:
-    *   **Hive Metastore**: Almacena los metadatos (esquema, ubicación de archivos) de las tablas que apuntan a los datos en HDFS. Utiliza una base de datos PostgreSQL para su persistencia.
-    *   **Trino (antes PrestoSQL)**: Un motor de consultas SQL distribuido que se conecta al Hive Metastore para permitir a los usuarios finales ejecutar consultas interactivas y de alto rendimiento sobre los datos de trazas almacenados en HDFS.
+1.  **Generación de Trazas (`server-mesh`)**: Las aplicaciones (ej. `app1`, `app2`) se ejecutan junto a un sidecar de Envoy. Envoy intercepta todo el tráfico de red, genera logs de acceso y los reenvía.
+2.  **Recolección de Logs (`Fluent-Bit`)**: Otro sidecar, Fluent Bit, recolecta los logs de Envoy y los envía a un tópico de Kafka.
+3.  **Broker de Mensajería (`Kafka`)**: Actúa como un búfer centralizado y resiliente, recibiendo las trazas en el tópico `envoy-logs`. Desacopla a los productores de los consumidores.
+4.  **Procesamiento en Streaming (`Spark`)**: Una aplicación de Spark Structured Streaming se suscribe al tópico de Kafka, procesa los mensajes en micro-lotes y los escribe en formato Parquet en el sistema de archivos distribuido HDFS.
+5.  **Almacenamiento Distribuido (`Hadoop HDFS`)**: HDFS proporciona un almacenamiento escalable y tolerante a fallos para los archivos Parquet. El clúster consiste en un NameNode y DataNodes desplegados dinámicamente.
+6.  **Consulta Federada (`Trino` + `Hive Metastore`)**:
+    *   **Hive Metastore**: Almacena los metadatos (esquema, ubicación de archivos) de las tablas que apuntan a los datos en HDFS.
+    *   **Sincronizador de Metadatos**: Un script se ejecuta periódicamente para que Hive reconozca las nuevas particiones de datos escritas por Spark.
+    *   **Trino (antes PrestoSQL)**: Un motor de consultas SQL distribuido que se conecta al Hive Metastore para permitir a los usuarios ejecutar consultas interactivas sobre los datos.
 
-## Componentes del Proyecto
+## Estructura del Proyecto
 
-El repositorio está organizado en directorios, cada uno conteniendo la configuración de `docker-compose` para un subsistema específico.
+El repositorio está organizado en los siguientes directorios principales:
 
-### 1. Servidor de Aplicación (`simple-producer`)
-
-*   **Ubicación**: `/simple-producer`
-*   **Descripción**: Contiene la configuración de Docker Compose para levantar el bróker de Kafka. Aunque el nombre del directorio es `simple-producer`, este `docker-compose.yml` también incluye un consumidor de consola (`kafka-consumer`) útil para depuración, que escucha el tópico `envoy-logs`. El servidor de la aplicación real (no mostrado en este archivo) se conectaría a este Kafka para enviar las trazas.
-
-### 2. Clúster Hadoop (`hadoop-cluster`)
-
-*   **Ubicación**: (Asumido) `/hadoop-cluster`
-*   **Descripción**: Contiene la configuración para desplegar un clúster HDFS con NameNode, DataNodes y configuración de `rack awareness`. Aquí es donde se almacenarán a largo plazo los archivos Parquet.
-
-### 3. Procesamiento con Spark (`spark-app`)
-
-*   **Ubicación**: (Asumido) `/spark-app`
-*   **Descripción**: Incluye la aplicación Spark Structured Streaming y su `docker-compose.yml`. Esta aplicación se conecta a Kafka para leer las trazas y a HDFS para escribirlas.
-
-### 4. Plataforma de Consulta SQL (`trino-hive`)
-
-*   **Ubicación**: (Asumido) `/trino-hive`
-*   **Descripción**: Despliega Trino, el Hive Metastore y la base de datos de soporte PostgreSQL. Este stack proporciona la capa de consulta SQL sobre los datos en HDFS.
+*   `zona-deploy/`: Contiene la lógica para desplegar "zonas" completas. Cada subdirectorio representa un componente de la infraestructura.
+    *   `server-mesh/`: Define el patrón de sidecar con Envoy y Fluent-Bit para las aplicaciones.
+    *   `streaming-kafka/`: Despliega el bróker de Kafka.
+    *   `spark-streaming-app/`: Despliega la aplicación de procesamiento con Spark.
+    *   `datanode/`: Plantilla para desplegar datanodes de HDFS.
+    *   `deploy-zone.sh` y `destroy-zone.sh`: Scripts para crear y destruir una zona completa.
+*   `hadoop-cluster/`: Define el servicio HDFS NameNode.
+*   `trino-sql/`: Despliega el stack de consulta con Trino, Hive Metastore y el sincronizador de particiones.
+*   `sql/`: Contiene scripts SQL, como la creación de la tabla inicial en Hive.
 
 ## Prerrequisitos
 
-Asegúrate de tener instaladas las siguientes herramientas en tu sistema:
-
-*   Docker
-*   Docker Compose
-
-Se recomienda asignar suficientes recursos a Docker (al menos 8 GB de RAM) ya que se ejecutarán múltiples servicios.
+*   Docker y Docker Compose
+*   Asegúrate de que Docker tenga asignados suficientes recursos (se recomiendan +8GB de RAM).
 
 ## Cómo Empezar
 
-Para levantar todo el pipeline, sigue estos pasos en orden. Abre una terminal para cada paso.
+El despliegue está automatizado a través de scripts que gestionan "zonas". Una zona es un entorno de despliegue autocontenido.
 
-### Paso 1: Iniciar Kafka
+### Paso 1: Crear la Red Principal
 
-Navega al directorio del productor y levanta los servicios de Kafka.
+Antes de desplegar cualquier componente, es necesario crear la red principal que permitirá la comunicación entre los distintos contenedores de la zona.
 
 ```bash
-cd /home/wandanauta/Documents/Labs/DockerSidecars/simple-producer/
-docker-compose up -d
+docker network create data-backbone
 ```
 
-### Paso 2: Iniciar el Clúster Hadoop
+### Paso 2: Desplegar una Zona
 
-En una nueva terminal, inicia el clúster HDFS.
+Para desplegar una zona completa (por ejemplo, `zone_1`) con `app1`, ejecuta el siguiente script. Este se encargará de levantar todos los servicios en el orden correcto.
 
 ```bash
-# Navega al directorio correspondiente
+cd zona-deploy/
+./deploy-zone.sh zone_1 app1 8081
+```
+
+Este comando despliega `app1` en una nueva zona llamada `zone_1`, exponiendo el servicio en el puerto `8081` del host.
+
+### Paso 3: Desplegar el NameNode de HDFS
+
+El NameNode de HDFS se gestiona de forma separada.
+
+```bash
 cd ../hadoop-cluster/
 docker-compose up -d
 ```
 
-### Paso 3: Iniciar la Aplicación Spark
-
-Una vez que Kafka y HDFS estén en funcionamiento, puedes iniciar la aplicación de Spark.
-
-```bash
-# Navega al directorio correspondiente
-cd ../spark-app/
-docker-compose up -d
-```
-
-### Paso 4: Iniciar Trino y Hive Metastore
+### Paso 4: Desplegar el Stack de Trino/Hive
 
 Finalmente, levanta la capa de consulta.
 
 ```bash
-# Navega al directorio correspondiente
-cd ../trino-hive/
+cd ../trino-sql/
 docker-compose up -d
 ```
 
@@ -94,46 +80,69 @@ docker-compose up -d
 
 ### 1. Generar Datos de Trazas
 
-Para generar datos, envía solicitudes HTTP a tu `simple-server`. Por ejemplo, si el servidor está escuchando en el puerto `8080`:
+Envía solicitudes a la aplicación desplegada. Usando el ejemplo anterior, `app1` está en el puerto `8081`.
 
 ```bash
-curl http://localhost:8080/ruta/de/prueba
+# Realiza una petición GET a la API de productos
+curl http://localhost:8081/app_1/products
+
+# Crea un nuevo producto
+curl -X POST http://localhost:8081/app_1/products \
+  -H "Content-Type: application/json" \
+  -d '{"name": "My New Product", "price": 19.99, "category": "Books"}'
 ```
 
-Cada solicitud debería generar un mensaje en el tópico `envoy-logs` de Kafka.
+Cada solicitud generará logs que son capturados y enviados a Kafka.
 
-### 2. Verificar Mensajes en Kafka
+### 2. Consultar los Datos con Trino
 
-Puedes usar el consumidor de consola incluido en `simple-producer/docker-compose.yml` para ver los mensajes en tiempo real.
+Después de unos minutos, la aplicación Spark habrá procesado los datos. Puedes usar Trino para consultarlos.
 
-```bash
-docker logs -f kafka-consumer
-```
-
-### 3. Consultar los Datos con Trino
-
-Una vez que la aplicación Spark haya procesado algunos datos y los haya escrito en HDFS, puedes consultarlos usando un cliente de Trino.
-
-1.  Conéctate a Trino a través de su CLI o una herramienta de BI compatible (como DBeaver, Superset, etc.) usando el puerto `8080` (o el que hayas expuesto para Trino).
-2.  Ejecuta consultas SQL sobre la tabla que Hive ha catalogado. El nombre del catálogo probablemente será `hive`.
+1.  Conéctate a Trino a través de su CLI o una herramienta de BI (DBeaver, Superset) en el puerto `8080`.
+2.  Ejecuta consultas SQL sobre la tabla.
 
 ```sql
--- Ejemplo de consulta en Trino
+-- Verificar los últimos registros en la tabla de trazas
 SELECT *
-FROM hive.logs.envoy_logs
-LIMIT 100;
+FROM hive.default.trazas_logs_v3
+LIMIT 10;
 
--- Contar solicitudes por endpoint
-SELECT request_path, COUNT(*) as total_requests
-FROM hive.logs.envoy_logs
-GROUP BY request_path
-ORDER BY total_requests DESC;
+-- Contar el número de peticiones por método HTTP
+SELECT request_method, COUNT(*) as total
+FROM hive.default.trazas_logs_v3
+GROUP BY request_method
+ORDER BY total DESC;
 ```
 
 ## Detener el Entorno
 
-Para detener y eliminar todos los contenedores, ejecuta el siguiente comando en cada uno de los directorios:
+Para detener y limpiar todos los recursos, utiliza los scripts correspondientes.
+
+### Paso 1: Destruir la Zona
+
+Usa el script `destroy-zone.sh` para detener y eliminar todos los contenedores asociados a una zona.
 
 ```bash
-docker-compose down
+cd zona-deploy/
+./destroy-zone.sh zone_1
+```
+
+### Paso 2: Detener los Servicios Centrales
+
+Detén el NameNode y el stack de Trino/Hive.
+
+```bash
+cd ../hadoop-cluster/
+docker compose down
+
+cd ../trino-sql/
+docker compose down
+```
+
+### Paso 3: Eliminar la Red
+
+Finalmente, puedes eliminar la red principal si ya no la necesitas.
+
+```bash
+docker network rm data-backbone
 ```

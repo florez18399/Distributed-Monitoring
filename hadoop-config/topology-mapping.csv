@@ -1,6 +1,2 @@
 zone1-datanode,/rack/zone1
 zone1-spark-processor,/rack/zone1
-zone2-datanode,/rack/zone2
-zone2-spark-processor,/rack/zone2
-zone3-datanode,/rack/zone3
-zone3-spark-processor,/rack/zone3
