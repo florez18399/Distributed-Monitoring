@@ -1,0 +1,241 @@
+{
+  "annotations": {
+    "list": [
+      {
+        "builtIn": 1,
+        "datasource": {
+          "type": "grafana",
+          "uid": "-- Grafana --"
+        },
+        "enable": true,
+        "hide": true,
+        "iconColor": "rgba(0, 211, 255, 1)",
+        "name": "Annotations & Alerts",
+        "type": "dashboard"
+      }
+    ]
+  },
+  "editable": true,
+  "fiscalYearStartMonth": 0,
+  "graphTooltip": 0,
+  "links": [],
+  "panels": [
+    {
+      "datasource": {
+        "type": "redis-datasource",
+        "uid": "redis-zone1-uid"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "mode": "thresholds"
+          },
+          "mappings": [],
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": 0
+              },
+              {
+                "color": "red",
+                "value": 80
+              }
+            ]
+          }
+        },
+        "overrides": []
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 0,
+        "y": 0
+      },
+      "id": 1,
+      "options": {
+        "minVizHeight": 75,
+        "minVizWidth": 75,
+        "orientation": "auto",
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        },
+        "showThresholdLabels": false,
+        "showThresholdMarkers": true,
+        "sizing": "auto"
+      },
+      "pluginVersion": "12.4.0",
+      "targets": [
+        {
+          "command": "INFO",
+          "datasource": {
+            "type": "redis-datasource",
+            "uid": "redis-zone1-uid"
+          },
+          "query": "memory",
+          "refId": "A",
+          "section": "memory",
+          "type": "info"
+        }
+      ],
+      "title": "Redis Memory Usage (Zone 1)",
+      "type": "gauge"
+    },
+    {
+      "datasource": {
+        "type": "trino-datasource",
+        "uid": "trino-hdfs-uid"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "custom": {
+            "align": "auto",
+            "cellOptions": {
+              "type": "auto"
+            },
+            "footer": {
+              "reducers": []
+            },
+            "inspect": false
+          },
+          "mappings": [],
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": 0
+              },
+              {
+                "color": "red",
+                "value": 80
+              }
+            ]
+          }
+        },
+        "overrides": []
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 12,
+        "y": 0
+      },
+      "id": 2,
+      "options": {
+        "cellHeight": "sm",
+        "showHeader": true
+      },
+      "pluginVersion": "12.4.0",
+      "targets": [
+        {
+          "datasource": {
+            "type": "grafana-trino-datasource",
+            "uid": "trino-hdfs-uid"
+          },
+          "format": "table",
+          "rawSql": "SELECT event_timestamp, endpoint, status_response, zona FROM trazas_logs ORDER BY event_timestamp DESC LIMIT 10",
+          "refId": "A"
+        }
+      ],
+      "title": "Recent Traces (Trino/HDFS)",
+      "type": "table"
+    }
+  ],
+  "preload": false,
+  "refresh": "",
+  "schemaVersion": 42,
+  "tags": [],
+  "templating": {
+    "list": [
+      {
+        "current": {
+          "text": [
+            "zone1"
+          ],
+          "value": [
+            "zone1"
+          ]
+        },
+        "datasource": {
+          "type": "trino-datasource",
+          "uid": "trino-hdfs-uid"
+        },
+        "definition": "SELECT DISTINCT zona FROM hive.default.trazas_logs_v5",
+        "description": "Listado de todas las zonas disponibles",
+        "multi": true,
+        "name": "trino_query_zones",
+        "options": [],
+        "query": {
+          "query": "SELECT DISTINCT zona FROM hive.default.trazas_logs_v5",
+          "refId": "StandardVariableQuery"
+        },
+        "refresh": 1,
+        "regex": "",
+        "regexApplyTo": "value",
+        "type": "query"
+      },
+      {
+        "current": {
+          "text": "",
+          "value": ""
+        },
+        "datasource": {
+          "type": "trino-datasource",
+          "uid": "trino-hdfs-uid"
+        },
+        "definition": "SELECT DISTINCT Endpoint FROM hive.default.trazas_logs_v5 WHERE zona IN (${zona:singlequote})",
+        "description": "Listado de endpoints en trino",
+        "multi": true,
+        "name": "trino_endpoints",
+        "options": [],
+        "query": {
+          "query": "SELECT DISTINCT Endpoint FROM hive.default.trazas_logs_v5 WHERE zona IN (${zona:singlequote})",
+          "refId": "StandardVariableQuery"
+        },
+        "refresh": 1,
+        "regex": "",
+        "regexApplyTo": "value",
+        "sort": 2,
+        "type": "query"
+      },
+      {
+        "current": {
+          "text": "",
+          "value": ""
+        },
+        "datasource": {
+          "type": "trino-datasource",
+          "uid": "trino-hdfs-uid"
+        },
+        "definition": "SELECT DISTINCT id_consumer FROM hive.default.trazas_logs_v5",
+        "description": "Listado de Id Consumidores",
+        "name": "trino_id_consumer",
+        "options": [],
+        "query": {
+          "query": "SELECT DISTINCT id_consumer FROM hive.default.trazas_logs_v5",
+          "refId": "StandardVariableQuery"
+        },
+        "refresh": 1,
+        "regex": "",
+        "regexApplyTo": "value",
+        "type": "query"
+      }
+    ]
+  },
+  "time": {
+    "from": "now-6h",
+    "to": "now"
+  },
+  "timepicker": {},
+  "timezone": "browser",
+  "title": "Data Sidecars Dashboard",
+  "uid": "data-sidecars-main",
+  "version": 1,
+  "weekStart": ""
+}

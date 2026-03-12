@@ -84,8 +84,8 @@ RUN curl -fSL https://repo1.maven.org/maven2/org/apache/spark/spark-sql-kafka-0-
 
 COPY --from=builder /build/hive-libs/* /opt/spark/hive-3.1-libs/
     
-# Instalación de la librería PySpark
-RUN pip3 install pyspark==${SPARK_VERSION}
+# Instalación de la librería PySpark y Redis
+RUN pip3 install pyspark==${SPARK_VERSION} redis
 
 # 6. Preparamos el directorio de la app y el de la config
 WORKDIR /app

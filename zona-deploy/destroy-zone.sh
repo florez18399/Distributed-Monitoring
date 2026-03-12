@@ -34,7 +34,7 @@ docker exec namenode hdfs dfs -rm -r -f "/checkpoints/trazas_v5/$ZONE_ID" || tru
 
 # 3. Borrar Apps de la malla
 echo "🗑️ Eliminando aplicaciones de la malla..."
-ßßfor app_dir in ./server-mesh/apps/*; do
+for app_dir in ./server-mesh/apps/*; do
     if [ -d "$app_dir" ]; then
         export APP_NAME=$(basename "$app_dir")
         echo " -> App: $APP_NAME"
@@ -44,9 +44,10 @@ echo "🗑️ Eliminando aplicaciones de la malla..."
     fi
 done
 
-# 4. Borrar Infra Kafka
-echo "Eliminando infraestructura Kafka..."
+# 4. Borrar Infra Kafka y Redis
+echo "Eliminando infraestructura Kafka y Redis..."
 docker compose -p "${ZONE_ID}-infra" -f streaming-kafka/docker-compose.yml down -v --remove-orphans || true
+docker compose -p "${ZONE_ID}-redis" -f redis-streaming/docker-compose.yml down -v --remove-orphans || true
 
 # 5. Borrar DataNode
 echo "Eliminando DataNode $ZONE_ID..."

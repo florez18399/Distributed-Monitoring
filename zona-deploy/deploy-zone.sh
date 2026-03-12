@@ -32,10 +32,13 @@ docker compose -f datanode/docker-compose.yml \
 
 Z_NUM=$(echo $ZONE_ID | tr -dc '0-9')
 export KAFKA_PORT_EXT=$((9090 + Z_NUM * 2))
-echo "Desplegando Kafka para $ZONE_ID en puerto host: $KAFKA_PORT_EXT"
+export REDIS_PORT_EXT=$((6370 + Z_NUM))
+echo "Desplegando Infraestructura para $ZONE_ID (Kafka: $KAFKA_PORT_EXT, Redis: $REDIS_PORT_EXT)"
 
-echo "Levantando Infraestructura (Kafka)..."
+echo "Levantando Infraestructura (Kafka & Redis)..."
 docker compose -p "${ZONE_ID}-infra" -f streaming-kafka/docker-compose.yml up -d
+docker compose -p "${ZONE_ID}-redis" -f redis-streaming/docker-compose.yml up -d
+
 
 # 4. Creando malla de aplicaciones
 echo "🚀 Desplegando Aplicaciones y configurando Gateway..."
