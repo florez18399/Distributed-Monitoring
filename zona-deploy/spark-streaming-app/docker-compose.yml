@@ -17,6 +17,10 @@ services:
     networks:
       - zone_net
       - hdfs-net
+    deploy:
+      resources:
+        limits:
+          memory: 768M
     # 2. Monta la config
     volumes:
       - ../../hadoop-config:/opt/spark/conf

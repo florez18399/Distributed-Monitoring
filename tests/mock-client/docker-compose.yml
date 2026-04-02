@@ -1,5 +1,3 @@
-version: '3.8'
-
 services:
   traffic-generator:
     build: .
@@ -7,9 +5,17 @@ services:
     environment:
       - GATEWAY_URL=http://main-api-gateway:81
       - CONF_DIR=/confs
+      - ZONE_MANIFEST_DIR=/zones
       - REQUEST_INTERVAL=0.5
+      - MODES=personas,temporal
+      - PERSONA_POOL_SIZE=10
+      - PERSONA_MIX=casual:0.5,power:0.2,window:0.3
+      - TIME_ACCELERATION=300
+      - TEMPORAL_EVENTS=[]
+      - ANOMALY_PROFILES=[]
     volumes:
       - ../../main-gateway/confs:/confs:ro
+      - ../../zona-deploy/zones:/zones:ro
     networks:
       - main_net
     restart: unless-stopped

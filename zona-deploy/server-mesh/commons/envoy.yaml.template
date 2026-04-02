@@ -131,5 +131,5 @@ static_resources:
         - endpoint:
             address:
               socket_address:
-                address: "zone3-api-gateway"
+                address: "${ZONE_GATEWAY_HOST}"
                 port_value: 80

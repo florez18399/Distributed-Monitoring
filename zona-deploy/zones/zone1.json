@@ -1,0 +1,30 @@
+{
+  "apps": [
+    {
+      "name": "catalog-api",
+      "scenario": "NORMAL",
+      "downstream_calls": [
+        { "target": "orders-api", "path": "/orders-api/checkout", "probability": 0.4 }
+      ]
+    },
+    {
+      "name": "orders-api",
+      "scenario": "DEGRADED",
+      "downstream_calls": [
+        { "target": "payments-api", "path": "/payments-api/checkout", "probability": 0.5 }
+      ]
+    },
+    {
+      "name": "payments-api",
+      "scenario": "CHAOS",
+      "downstream_calls": [
+        { "target": "auth-api", "path": "/auth-api/validate", "probability": 0.8 }
+      ]
+    },
+    {
+      "name": "auth-api",
+      "scenario": "BURSTY",
+      "downstream_calls": []
+    }
+  ]
+}

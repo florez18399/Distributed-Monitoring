@@ -3,11 +3,11 @@ version: '3.8'
 networks:
   zone_net:
     external: true
-    name: ${ZONE_NETWORK_NAME} 
+    name: ${ZONE_NETWORK_NAME}
 
   pod_net:
     driver: bridge
-    name: ${ZONE_ID}-${APP_NAME}_internal_net 
+    name: ${ZONE_ID}-${APP_NAME}_internal_net
 
 volumes:
   shared-logs:
@@ -15,7 +15,7 @@ volumes:
 services:
 
   app:
-    build: ./apps/${APP_NAME} 
+    build: ./apps/generic-app
     container_name: ${ZONE_ID}-${APP_NAME}-core
     networks:
       - pod_net
@@ -25,6 +25,9 @@ services:
       - APP_PATH=/${APP_NAME}
       - PORT=8080
       - SCENARIO=${SCENARIO:-NORMAL}
+      - DOWNSTREAM_CALLS=${DOWNSTREAM_CALLS:-[]}
+      - EGRESS_HOST=envoy
+      - EGRESS_PORT=9001
     restart: unless-stopped
 
   envoy:
@@ -37,7 +40,7 @@ services:
       - ./commons/envoy.yaml:/etc/envoy/envoy.yaml:ro
       - shared-logs:/var/log/envoy:z
     ports:
-      - "${HOST_PORT}:8080" 
+      - "${HOST_PORT}:8080"
     depends_on:
       - app
     environment:
@@ -55,6 +58,6 @@ services:
       - ./commons/fluent-bit.conf:/fluent-bit/etc/fluent-bit.conf:ro
       - shared-logs:/var/log/envoy:ro
     environment:
-      - KAFKA_BROKER=${KAFKA_BROKER_HOST} 
+      - KAFKA_BROKER=${KAFKA_BROKER_HOST}
     depends_on:
       - envoy
