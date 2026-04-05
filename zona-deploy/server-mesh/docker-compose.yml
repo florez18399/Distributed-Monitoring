@@ -48,6 +48,7 @@ services:
       - ENVOY_GID=0
       - SERVICE_NAME=${APP_NAME}
       - INSTANCE_ID=1
+      - ZONE_ID=${ZONE_ID}
 
   fluentd:
     image: fluent/fluent-bit:2.2

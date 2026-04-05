@@ -54,7 +54,7 @@ graph TB
         end
 
         subgraph SPARK_Z["Spark Structured Streaming"]
-            SPK["stream-writer.py<br/>local[*] mode<br/>startingOffsets=latest"]
+            SPK["stream-writer.py<br/>local[*] mode<br/>startingOffsets=latest<br/>streams HDFS/Redis independientes"]
         end
 
         subgraph REDIS_Z["Redis local"]
@@ -66,6 +66,7 @@ graph TB
 
     subgraph HDFS_CORE["HDFS CORE"]
         NN["NameNode<br/>hadoop-base:3.2.1<br/>:9000 / :9870<br/>topology.sh + mapping.csv"]
+        COMPACT["Compactor<br/>PySpark + cron 6h<br/>consolida small files"]
     end
 
     subgraph TRINO_STACK["TRINO STACK"]
@@ -75,9 +76,9 @@ graph TB
             PG <-->|"JDBC"| HM
         end
 
-        TC["Trino Coordinator 448<br/>:8080 · 4GB query mem<br/>catalog: hive, tpch"]
-        TW1["Trino Worker 1<br/>1.2GB/node"]
-        TW2["Trino Worker 2<br/>1.2GB/node"]
+        TC["Trino Coordinator 448<br/>:8080 · 2GB query mem<br/>optimize_hash_generation<br/>catalog: hive, tpch"]
+        TW1["Trino Worker 1<br/>640MB/node"]
+        TW2["Trino Worker 2<br/>640MB/node"]
         SYN["synchronizer.sh<br/>sync_partition_metadata<br/>cada 60s"]
 
         TC <-->|"discovery"| TW1
@@ -123,6 +124,7 @@ graph TB
     SPK -->|"foreachPartition 5s<br/>xadd + minid trim"| RG
 
     NN <-->|"bloque replicado<br/>hdfs-backbone"| DN
+    COMPACT -->|"read/rewrite<br/>coalesce(1)"| NN
 
     NN -->|"hdfs://namenode:9000"| TC
     HM -->|"partition detect 60s"| PG
@@ -314,12 +316,12 @@ graph TB
 
     subgraph TRINO["TRINO CLUSTER"]
         subgraph COORDINATOR["Coordinator :8080"]
-            TC["Trino 448<br/>4GB query memory<br/>catalogs: hive, tpch"]
+            TC["Trino 448<br/>2GB query memory<br/>optimize_hash_generation<br/>catalogs: hive, tpch"]
         end
 
         subgraph WORKERS["Workers"]
-            TW1["Worker 1<br/>1.2GB/node"]
-            TW2["Worker 2<br/>1.2GB/node"]
+            TW1["Worker 1<br/>640MB/node"]
+            TW2["Worker 2<br/>640MB/node"]
         end
 
         TC <-->|"discovery.uri"| TW1
@@ -413,8 +415,11 @@ graph LR
         NN <-->|"replicacion"| DN2
         NN <-->|"replicacion"| DN3
 
-        PARQUET["Parquet Files<br/>/user/hive/warehouse/trazas_logs_v5/<br/>zona=zoneN/year/month/day/hour/"]
+        PARQUET["Parquet Files<br/>/data/trazas_v5/<br/>zona=zoneN/year/month/day/hour/"]
         NN --- PARQUET
+
+        COMPACTOR["Compactor<br/>cron 6h · --recent 6<br/>consolida small files"]
+        COMPACTOR -->|"coalesce(1)<br/>por particion"| PARQUET
     end
 
     subgraph REDIS["Redis Global · :6379"]
@@ -455,7 +460,7 @@ graph LR
 ### Particionamiento en HDFS
 
 ```
-/user/hive/warehouse/trazas_logs_v5/
+/data/trazas_v5/
 ├── zona=zone1/
 │   └── year=2026/
 │       └── month=04/

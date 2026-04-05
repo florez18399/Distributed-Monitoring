@@ -24,7 +24,6 @@ services:
     # 2. Monta la config
     volumes:
       - ../../hadoop-config:/opt/spark/conf
-      - ./hive-config/hive-site.xml:/opt/spark/conf/hive-site.xml:ro
     # 3. Pasa la variable de entorno
     environment:
       - ZONA_ID=${ZONE_ID}

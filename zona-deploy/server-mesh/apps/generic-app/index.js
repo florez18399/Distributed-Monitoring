@@ -45,7 +45,7 @@ async function callDownstream(reqId) {
         const resp = await fetch(url, {
           headers: {
             'X-REQUEST-ID': reqId || '',
-            'X-CONSUMER-ID': `${APP_NAME}-1`
+            'X-CONSUMER-ID': `${ZONE_ID}/${APP_NAME}-1`
           },
           signal: AbortSignal.timeout(5000)
         });

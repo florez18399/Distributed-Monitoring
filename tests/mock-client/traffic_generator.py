@@ -193,7 +193,7 @@ class Persona:
         self.state = State.IDLE
         self.request_count = 0
         self.start_time = time.time()
-        self.consumer_id = f"user-{persona_type}-{self.session_id}"
+        self.consumer_id = f"external/user-{persona_type}-{self.session_id}"
 
     def transition(self):
         matrix = TRANSITION_MATRICES[self.persona_type]
@@ -432,7 +432,7 @@ class AnomalyEngine:
                     try:
                         async with session.get(
                             url,
-                            headers={"X-CONSUMER-ID": "anomaly-cascade"},
+                            headers={"X-CONSUMER-ID": "external/anomaly-cascade"},
                             timeout=aiohttp.ClientTimeout(total=10)
                         ) as resp:
                             await resp.read()
@@ -476,7 +476,7 @@ class AnomalyEngine:
                     try:
                         async with session.get(
                             url,
-                            headers={"X-CONSUMER-ID": "anomaly-brownout"},
+                            headers={"X-CONSUMER-ID": "external/anomaly-brownout"},
                             timeout=aiohttp.ClientTimeout(total=10)
                         ) as resp:
                             await resp.read()
@@ -536,7 +536,7 @@ class AnomalyEngine:
                 try:
                     async with session.get(
                         url,
-                        headers={"X-CONSUMER-ID": "anomaly-scanner"},
+                        headers={"X-CONSUMER-ID": "external/anomaly-scanner"},
                         timeout=aiohttp.ClientTimeout(total=5)
                     ) as resp:
                         await resp.read()
@@ -571,7 +571,7 @@ class AnomalyEngine:
                     try:
                         async with session.get(
                             url,
-                            headers={"X-CONSUMER-ID": "anomaly-ddos"},
+                            headers={"X-CONSUMER-ID": "external/anomaly-ddos"},
                             timeout=aiohttp.ClientTimeout(total=10)
                         ) as resp:
                             await resp.read()

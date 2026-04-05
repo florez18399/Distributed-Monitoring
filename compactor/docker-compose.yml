@@ -1,0 +1,19 @@
+networks:
+  hdfs-net:
+    external: true
+    name: hdfs-backbone
+
+services:
+  compactor-cron:
+    build: .
+    container_name: hdfs-compactor-cron
+    hostname: compactor-cron
+    networks:
+      - hdfs-net
+    deploy:
+      resources:
+        limits:
+          memory: 768M
+    volumes:
+      - ../hadoop-config:/opt/spark/conf
+    restart: unless-stopped

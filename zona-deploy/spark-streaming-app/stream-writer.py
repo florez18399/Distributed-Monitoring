@@ -5,8 +5,8 @@ import time
 import sys
 from pyspark.sql import SparkSession
 from pyspark.sql.functions import (
-    col, year, month, dayofmonth, hour, lit, 
-    from_json, to_timestamp, split
+    col, year, month, dayofmonth, hour, lit,
+    from_json, to_timestamp, split, when, regexp_extract
 )
 from pyspark.sql.types import (
     StructType, StructField, StringType, LongType, IntegerType, TimestampType
@@ -84,7 +84,7 @@ def process_batch_hdfs(batch_df, batch_id):
     if row_count > 0:
         print(f"--- [HDFS] Batch {batch_id} | Rows: {row_count} ---")
         # Escritura directa a path para evitar conflictos de formato de tabla Hive
-        batch_df.write \
+        batch_df.coalesce(1).write \
             .format("parquet") \
             .mode("append") \
             .partitionBy("zona", "year", "month", "day", "hour") \
@@ -153,11 +153,29 @@ def main():
                 .withColumn("hour", hour(col("event_timestamp")))
                 .withColumn("zona", lit(ZONA_ID))
                 .drop("full_endpoint")
+                # Consumer classification: zone1/service-1 = internal, external/xxx = external, service-1 (legacy) = internal, - = external
+                .withColumn("consumer_type",
+                    when(col("id_consumer").isNull() | (col("id_consumer") == "-"), lit("external"))
+                    .when(col("id_consumer").startswith("external/"), lit("external"))
+                    .otherwise(lit("internal"))
+                )
+                .withColumn("source_zone",
+                    when(col("id_consumer").isNull() | (col("id_consumer") == "-"), lit("unknown"))
+                    .when(col("id_consumer").contains("/"),
+                          split(col("id_consumer"), "/").getItem(0))
+                    .otherwise(lit("unknown"))
+                )
+                .withColumn("source_service",
+                    when(col("id_consumer").isNull() | (col("id_consumer") == "-"), lit("unknown"))
+                    .when(col("id_consumer").contains("/"),
+                          regexp_extract(col("id_consumer"), r"^[^/]+/(.+?)(?:-\d+)?$", 1))
+                    .otherwise(regexp_extract(col("id_consumer"), r"^(.+?)(?:-\d+)?$", 1))
+                )
             )
 
             # 3. LANZAR QUERIES
             print(f"[*] [ZONA: {ZONA_ID}] Lanzando queries de stream (HDFS + Redis)...")
-            
+
             # Query 1: HDFS (Consolidación) - Cada 2 minutos
             hdfs_query = (
                 df_processed.writeStream
@@ -177,7 +195,31 @@ def main():
             )
 
             print(f"[*] [ZONA: {ZONA_ID}] Streams activos. Esperando datos...")
-            spark.streams.awaitAnyTermination()
+
+            # Monitorear streams independientemente: si Redis falla, solo reiniciar Redis
+            while True:
+                time.sleep(10)
+
+                if not hdfs_query.isActive:
+                    exc = hdfs_query.exception()
+                    print(f"[!] HDFS stream terminó: {exc}")
+                    # HDFS es crítico — reiniciar todo
+                    if redis_query.isActive:
+                        redis_query.stop()
+                    break
+
+                if not redis_query.isActive:
+                    exc = redis_query.exception()
+                    print(f"[!] Redis stream terminó: {exc}. Reiniciando solo Redis...")
+                    time.sleep(5)
+                    redis_query = (
+                        df_processed.writeStream
+                        .foreachBatch(process_batch_redis)
+                        .option("checkpointLocation", f"{CHECKPOINT_PATH_V3}/redis")
+                        .trigger(processingTime="5 seconds")
+                        .start()
+                    )
+                    print(f"[*] Redis stream reiniciado")
 
         except Exception as e:
             print(f"[!] ERROR CRÍTICO EN RUNTIME: {e}")

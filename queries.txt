@@ -1,0 +1,222 @@
+Filtro de particion comun a todas las queries:
+=================================================
+Agregar ANTES del filtro de $__timeFilter:
+
+  AND year * 10000 + month * 100 + day
+      BETWEEN ${__from:date:YYYY} * 10000 + ${__from:date:M} * 100 + ${__from:date:D}
+          AND ${__to:date:YYYY} * 10000 + ${__to:date:M} * 100 + ${__to:date:D}
+
+Esto permite partition pruning: Trino descarta particiones fuera del rango
+sin abrir archivos. El filtro de $__timeFilter sigue siendo necesario para
+precision a nivel de timestamp.
+
+=================================================================
+QUERIES OPTIMIZADAS
+=================================================================
+
+1-
+SELECT
+  (count(CASE WHEN status_response >= 200 AND status_response < 300 THEN 1 END) * 100.0) / nullif(count(*), 0) AS tasa_exito
+FROM hive.default.trazas_logs_v5
+WHERE year * 10000 + month * 100 + day
+      BETWEEN ${__from:date:YYYY} * 10000 + ${__from:date:M} * 100 + ${__from:date:D}
+          AND ${__to:date:YYYY} * 10000 + ${__to:date:M} * 100 + ${__to:date:D}
+  AND $__timeFilter(event_timestamp)
+  AND zona IN (${trino_query_zones:singlequote})
+  AND endpoint IN (${trino_endpoints:singlequote})
+
+2-
+SELECT
+  count(*) / GREATEST(date_diff('second', min(event_timestamp), max(event_timestamp)), 1) AS rps
+FROM hive.default.trazas_logs_v5
+WHERE year * 10000 + month * 100 + day
+      BETWEEN ${__from:date:YYYY} * 10000 + ${__from:date:M} * 100 + ${__from:date:D}
+          AND ${__to:date:YYYY} * 10000 + ${__to:date:M} * 100 + ${__to:date:D}
+  AND $__timeFilter(event_timestamp)
+  AND zona IN (${trino_query_zones:singlequote})
+  AND endpoint IN (${trino_endpoints:singlequote})
+
+3-
+SELECT
+  date_trunc('minute', event_timestamp) AS time,
+  zona AS metric,
+  count(*) AS volumen
+FROM hive.default.trazas_logs_v5
+WHERE year * 10000 + month * 100 + day
+      BETWEEN ${__from:date:YYYY} * 10000 + ${__from:date:M} * 100 + ${__from:date:D}
+          AND ${__to:date:YYYY} * 10000 + ${__to:date:M} * 100 + ${__to:date:D}
+  AND $__timeFilter(event_timestamp)
+  AND zona IN (${trino_query_zones:singlequote})
+  AND endpoint IN (${trino_endpoints:singlequote})
+GROUP BY 1, 2
+ORDER BY 1
+
+4-
+SELECT
+  date_trunc('minute', event_timestamp) AS time,
+  count(*) AS peticiones_totales,
+  count(CASE WHEN status_response >= 400 THEN 1 END) AS errores
+FROM hive.default.trazas_logs_v5
+WHERE year * 10000 + month * 100 + day
+      BETWEEN ${__from:date:YYYY} * 10000 + ${__from:date:M} * 100 + ${__from:date:D}
+          AND ${__to:date:YYYY} * 10000 + ${__to:date:M} * 100 + ${__to:date:D}
+  AND $__timeFilter(event_timestamp)
+  AND zona IN (${trino_query_zones:singlequote})
+  AND endpoint IN (${trino_endpoints:singlequote})
+GROUP BY 1
+ORDER BY 1
+
+5-
+SELECT
+  date_trunc('minute', event_timestamp) AS time,
+  sum(req_body_size) AS bytes_recibidos,
+  sum(resp_body_size) AS bytes_enviados
+FROM hive.default.trazas_logs_v5
+WHERE year * 10000 + month * 100 + day
+      BETWEEN ${__from:date:YYYY} * 10000 + ${__from:date:M} * 100 + ${__from:date:D}
+          AND ${__to:date:YYYY} * 10000 + ${__to:date:M} * 100 + ${__to:date:D}
+  AND $__timeFilter(event_timestamp)
+  AND zona IN (${trino_query_zones:singlequote})
+  AND endpoint IN (${trino_endpoints:singlequote})
+GROUP BY 1
+ORDER BY 1
+
+6-
+SELECT
+  date_trunc('minute', event_timestamp) AS time,
+  avg(CAST(time_transaction AS double)) AS latencia_promedio,
+  approx_percentile(CAST(time_transaction AS double), 0.95) AS latencia_p95
+FROM hive.default.trazas_logs_v5
+WHERE year * 10000 + month * 100 + day
+      BETWEEN ${__from:date:YYYY} * 10000 + ${__from:date:M} * 100 + ${__from:date:D}
+          AND ${__to:date:YYYY} * 10000 + ${__to:date:M} * 100 + ${__to:date:D}
+  AND $__timeFilter(event_timestamp)
+  AND zona IN (${trino_query_zones:singlequote})
+  AND endpoint IN (${trino_endpoints:singlequote})
+GROUP BY 1
+ORDER BY 1
+
+7-
+SELECT
+  zona AS "Zona",
+  endpoint AS "API / Endpoint",
+  count(*) AS "Total Solicitudes",
+  (count(CASE WHEN status_response >= 200 AND status_response < 300 THEN 1 END) * 100.0) / nullif(count(*), 0) AS "Tasa de Exito",
+  count(CASE WHEN status_response >= 400 AND status_response < 500 THEN 1 END) AS "Errores 4xx",
+  count(CASE WHEN status_response >= 500 THEN 1 END) AS "Errores 5xx",
+  avg(CAST(time_transaction AS double)) AS "Latencia Prom",
+  approx_percentile(CAST(time_transaction AS double), 0.95) AS "Latencia p95",
+  approx_percentile(CAST(time_transaction AS double), 0.99) AS "Latencia p99",
+  stddev(CAST(time_transaction AS double)) AS "Desviacion Latencia",
+  avg(CAST(req_body_size AS double)) AS "Payload In Prom",
+  avg(CAST(resp_body_size AS double)) AS "Payload Out Prom"
+FROM hive.default.trazas_logs_v5
+WHERE year * 10000 + month * 100 + day
+      BETWEEN ${__from:date:YYYY} * 10000 + ${__from:date:M} * 100 + ${__from:date:D}
+          AND ${__to:date:YYYY} * 10000 + ${__to:date:M} * 100 + ${__to:date:D}
+  AND $__timeFilter(event_timestamp)
+  AND zona IN (${trino_query_zones:singlequote})
+  AND endpoint IN (${trino_endpoints:singlequote})
+GROUP BY 1, 2
+ORDER BY "Total Solicitudes" DESC
+
+8-
+SELECT
+    CASE
+      WHEN consumer_type = 'external' OR source_zone IS NULL OR source_zone = '' OR
+  source_zone = 'unknown'
+      THEN 'external'
+      ELSE CONCAT(source_zone, '/', source_service)
+    END AS id,
+    CASE
+      WHEN consumer_type = 'external' OR source_zone IS NULL OR source_zone = '' OR
+  source_zone = 'unknown'
+      THEN 'clients'
+      ELSE source_service
+    END AS title,
+    CASE
+      WHEN consumer_type = 'external' OR source_zone IS NULL OR source_zone = '' OR
+  source_zone = 'unknown'
+      THEN 'external'
+      ELSE source_zone
+    END AS subtitle,
+    SUM(1) AS mainstat
+  FROM hive.default.trazas_logs_v5
+  WHERE year * 10000 + month * 100 + day
+        BETWEEN ${__from:date:YYYY} * 10000 + ${__from:date:M} * 100 + ${__from:date:D}
+            AND ${__to:date:YYYY} * 10000 + ${__to:date:M} * 100 + ${__to:date:D}
+    AND $__timeFilter(event_timestamp)
+    AND zona IN (${zona:sqlstring})
+  GROUP BY 1, 2, 3
+
+  UNION ALL
+
+  SELECT DISTINCT
+    CONCAT(zona, '/', REGEXP_EXTRACT(id_recurso, '^([a-z]+-[a-z]+)', 1)) AS id,
+    REGEXP_EXTRACT(id_recurso, '^([a-z]+-[a-z]+)', 1) AS title,
+    zona AS subtitle,
+    CAST(0 AS BIGINT) AS mainstat
+  FROM hive.default.trazas_logs_v5
+  WHERE year * 10000 + month * 100 + day
+        BETWEEN ${__from:date:YYYY} * 10000 + ${__from:date:M} * 100 + ${__from:date:D}
+            AND ${__to:date:YYYY} * 10000 + ${__to:date:M} * 100 + ${__to:date:D}
+    AND $__timeFilter(event_timestamp)
+    AND id_recurso IS NOT NULL AND id_recurso != ''
+    AND zona IN (${zona:sqlstring})
+
+8b-
+ SELECT
+    ROW_NUMBER() OVER () AS id,
+    CASE
+      WHEN consumer_type = 'external' OR source_zone IS NULL OR source_zone = '' OR
+  source_zone = 'unknown'
+      THEN 'external'
+      ELSE CONCAT(source_zone, '/', source_service)
+    END AS source,
+    CONCAT(zona, '/', REGEXP_EXTRACT(id_recurso, '^([a-z]+-[a-z]+)', 1)) AS target,
+    CAST(COUNT(*) AS VARCHAR) AS mainstat,
+    CAST(ROUND(AVG(time_transaction), 0) AS VARCHAR) AS secondarystat
+  FROM hive.default.trazas_logs_v5
+  WHERE year * 10000 + month * 100 + day
+        BETWEEN ${__from:date:YYYY} * 10000 + ${__from:date:M} * 100 + ${__from:date:D}
+            AND ${__to:date:YYYY} * 10000 + ${__to:date:M} * 100 + ${__to:date:D}
+    AND $__timeFilter(event_timestamp)
+    AND id_recurso IS NOT NULL AND id_recurso != ''
+    AND zona IN (${zona:sqlstring})
+  GROUP BY 2, 3
+
+9-
+SELECT
+    COALESCE(NULLIF(source_zone, ''), 'external') AS origen,
+    zona AS destino,
+    COUNT(*) AS total_requests,
+    ROUND(AVG(time_transaction), 1) AS avg_latency_ms,
+    ROUND(CAST(MAX(time_transaction) AS DOUBLE), 1) AS max_latency_ms,
+    ROUND(100.0 * SUM(CASE WHEN status_response >= 500 THEN 1 ELSE 0 END) / COUNT(*), 2)
+  AS error_rate_pct,
+    ROUND(100.0 * SUM(CASE WHEN status_response >= 200 AND status_response < 300 THEN 1
+  ELSE 0 END) / COUNT(*), 2) AS success_rate_pct
+  FROM hive.default.trazas_logs_v5
+  WHERE year * 10000 + month * 100 + day
+        BETWEEN ${__from:date:YYYY} * 10000 + ${__from:date:M} * 100 + ${__from:date:D}
+            AND ${__to:date:YYYY} * 10000 + ${__to:date:M} * 100 + ${__to:date:D}
+    AND $__timeFilter(event_timestamp)
+    AND zona IN (${zona:sqlstring})
+  GROUP BY source_zone, zona
+  ORDER BY total_requests DESC
+
+10-
+SELECT
+    CONCAT(zona, '/', REGEXP_EXTRACT(id_recurso, '^([a-z]+-[a-z]+)', 1)) AS servicio,
+    ROUND(100.0 * SUM(CASE WHEN status_response >= 500 THEN 1 ELSE 0 END) / COUNT(*), 2)
+  AS error_rate_pct,
+    COUNT(*) AS total
+  FROM hive.default.trazas_logs_v5
+  WHERE year * 10000 + month * 100 + day
+        BETWEEN ${__from:date:YYYY} * 10000 + ${__from:date:M} * 100 + ${__from:date:D}
+            AND ${__to:date:YYYY} * 10000 + ${__to:date:M} * 100 + ${__to:date:D}
+    AND $__timeFilter(event_timestamp)
+    AND zona IN (${zona:sqlstring})
+    AND id_recurso IS NOT NULL AND id_recurso != ''
+  GROUP BY zona, REGEXP_EXTRACT(id_recurso, '^([a-z]+-[a-z]+)', 1)
+  ORDER BY error_rate_pct DESC

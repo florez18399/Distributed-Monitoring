@@ -65,7 +65,7 @@ envsubst '${ZONE_GATEWAY_HOST}' < server-mesh/commons/envoy.yaml.template > serv
 export KAFKA_BROKER_HOST="${ZONE_ID}-broker"
 
 # 6. Preparar nginx.conf de zona
-ZONE_NGINX_CONF="zone-gateway/nginx.conf"
+ZONE_NGINX_CONF="zone-gateway/nginx-${ZONE_ID}.conf"
 cat <<EOF > "$ZONE_NGINX_CONF"
 events { worker_connections 1024; }
 http {
@@ -103,9 +103,11 @@ EOF
 done
 
 # 8. Agregar ruta cross-zone al nginx
-cat <<EOF >> "$ZONE_NGINX_CONF"
+cat <<'EOF' >> "$ZONE_NGINX_CONF"
+        resolver 127.0.0.11 valid=10s;
+        set $main_gw main-api-gateway;
         location /_external/ {
-            proxy_pass http://main-api-gateway:81/;
+            proxy_pass http://$main_gw:81/;
             proxy_http_version 1.1;
         }
     }
@@ -123,7 +125,9 @@ mkdir -p "$MAIN_CONF_DIR"
 
 cat <<EOF > "${MAIN_CONF_DIR}/${ZONE_ID}.conf"
 location /${ZONE_ID}/ {
-    proxy_pass http://${ZONE_ID}-api-gateway:80/;
+    set \$${ZONE_ID}_gw ${ZONE_ID}-api-gateway;
+    rewrite ^/${ZONE_ID}/(.*)\$ /\$1 break;
+    proxy_pass http://\$${ZONE_ID}_gw:80;
 }
 EOF
 

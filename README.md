@@ -138,6 +138,11 @@ DockerSidecars/
 ├── monitoring/              # Grafana OSS + datasources
 │   └── grafana/
 ├── redis-streaming/         # Redis Global (Streams tiempo real)
+├── compactor/               # Compactador de small files HDFS (cron cada 6h)
+│   ├── compactor.py         # Spark job: consolida parquets por particion
+│   ├── Dockerfile           # PySpark + cron
+│   └── docker-compose.yml
+├── sql/                     # Scripts SQL de creacion de tablas
 ├── tracer_api/              # Flask API para consulta de trazas
 │   └── app/
 ├── trino-sql/               # Trino Coordinator + Workers + Hive
@@ -157,6 +162,8 @@ DockerSidecars/
 │   ├── zone-gateway/        # nginx por zona (generado)
 │   ├── deploy-zone.sh       # Despliegue declarativo por manifiesto
 │   └── destroy-zone.sh      # Destruccion limpia con cleanup
+├── recover.sh               # Recuperacion automatica post-crash del host
+├── queries.txt              # Queries Grafana optimizadas con partition pruning
 └── Arch_Diagram.md          # Diagramas de arquitectura (Mermaid)
 ```
 
@@ -226,7 +233,7 @@ docker compose up -d --build
 
 ```bash
 # Via Trino (datos historicos en HDFS)
-docker exec -it trino-coordinator trino --execute \
+docker exec -it trino trino --execute \
   "SELECT id_consumer, count(*) FROM hive.default.trazas_logs_v5 GROUP BY id_consumer ORDER BY 2 DESC LIMIT 10"
 
 # Via Grafana (tiempo real)
@@ -245,6 +252,64 @@ cd zona-deploy/
 
 # El script limpia: containers, redes, checkpoints HDFS, topologia
 ```
+
+## Compactador HDFS
+
+Spark Structured Streaming genera un archivo parquet por micro-batch (cada 2 minutos), lo que produce miles de small files (~6KB cada uno). El compactador consolida estos archivos en uno solo por particion hora, reduciendo el overhead de I/O en Trino.
+
+```bash
+# El compactador corre automaticamente cada 6 horas via cron
+cd compactor && docker compose up -d
+
+# Ejecucion manual
+docker exec hdfs-compactor-cron spark-submit --master 'local[*]' /app/compactor.py --recent 6
+
+# Opciones disponibles
+spark-submit compactor.py                    # Compactar todas las particiones
+spark-submit compactor.py --date 2026-04-02  # Compactar un dia especifico
+spark-submit compactor.py --yesterday        # Compactar el dia anterior
+spark-submit compactor.py --recent 6         # Compactar las ultimas 6 horas (excluyendo la actual)
+```
+
+El compactor tambien realiza backfill de campos derivados (`consumer_type`, `source_zone`, `source_service`) para trazas legacy que no los tengan.
+
+## Recuperacion Post-Crash
+
+El script `recover.sh` automatiza la recuperacion del sistema tras un apagado abrupto del host:
+
+```bash
+./recover.sh
+```
+
+Fases de recuperacion:
+1. Reinicia todos los contenedores detenidos
+2. Espera a que el NameNode responda
+3. Desactiva Safe Mode de HDFS
+4. Valida y re-registra DataNodes (deteccion dinamica de zonas)
+5. Detecta y elimina bloques corruptos (checkpoints y datos)
+6. Reinicia Spark processors (para recrear checkpoints)
+7. Reinicia y valida Trino (sincroniza metadata Hive, ejecuta query de validacion)
+8. Recarga nginx del main gateway
+
+## Optimizaciones de Rendimiento
+
+### Trino
+- `optimize_hash_generation=true`: precomputo de hashes para distribución y agregaciones
+- Metadata cache de Hive Metastore (TTL 10m, refresh 5m)
+- Parquet column name matching habilitado
+
+### Queries Grafana
+Las consultas en `queries.txt` incluyen un filtro de particion que habilita partition pruning en Trino:
+```sql
+WHERE year * 10000 + month * 100 + day
+      BETWEEN ${__from:date:YYYY} * 10000 + ${__from:date:M} * 100 + ${__from:date:D}
+          AND ${__to:date:YYYY} * 10000 + ${__to:date:M} * 100 + ${__to:date:D}
+  AND $__timeFilter(event_timestamp)
+```
+Esto permite a Trino descartar particiones fuera del rango temporal sin abrir archivos.
+
+### Spark Streaming
+Los streams HDFS y Redis se monitorean de forma independiente: si el stream de Redis falla, solo se reinicia Redis sin afectar la escritura a HDFS, evitando la generacion excesiva de small files.
 
 ## Redes
 
