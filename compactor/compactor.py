@@ -23,6 +23,7 @@ from pyspark.sql.functions import (
 
 HDFS_PATH = "hdfs://namenode:9000/data/trazas_v5"
 COMPACT_TMP = "hdfs://namenode:9000/data/_compaction_tmp"
+MAX_RETRIES = 3
 
 KNOWN_SERVICES = {"catalog-api", "orders-api", "payments-api", "auth-api"}
 
@@ -77,7 +78,11 @@ def add_consumer_fields(df):
 
 
 def compact_partition(spark, path, partition_filter=None):
-    """Read, compact, and rewrite a partition."""
+    """Read, compact, and rewrite a partition using isolated tmp path.
+
+    Uses a unique tmp directory per partition to avoid _temporary conflicts
+    with concurrent Spark streaming writers on the same base path.
+    """
     fs = spark._jvm.org.apache.hadoop.fs.FileSystem.get(
         spark.sparkContext._jsc.hadoopConfiguration()
     )
@@ -86,6 +91,15 @@ def compact_partition(spark, path, partition_filter=None):
     source = Path(path)
     if not fs.exists(source):
         print(f"[SKIP] Path does not exist: {path}")
+        return 0
+
+    # Count parquet files directly via HDFS API (avoids Spark read for skip check)
+    file_list = fs.listStatus(source)
+    parquet_files = [f for f in file_list if f.getPath().getName().endswith(".parquet")]
+    file_count = len(parquet_files)
+
+    if file_count <= 1:
+        print(f"[SKIP] Already compact ({file_count} file): {path}")
         return 0
 
     try:
@@ -100,13 +114,6 @@ def compact_partition(spark, path, partition_filter=None):
 
     row_count = df.count()
 
-    # Count source files
-    file_count = df.withColumn("_file", input_file_name()).select("_file").distinct().count()
-
-    if file_count <= 1:
-        print(f"[SKIP] Already compact ({file_count} file, {row_count} rows): {path}")
-        return 0
-
     # Backfill consumer fields for legacy data
     df = add_consumer_fields(df)
 
@@ -114,28 +121,41 @@ def compact_partition(spark, path, partition_filter=None):
     write_cols = [c for c in df.columns if c not in ("zona", "year", "month", "day", "hour")]
     df_write = df.select(*write_cols)
 
-    # Write to temp location
-    tmp_path = COMPACT_TMP + "/" + path.split("/trazas_v5/")[-1]
+    # Write to isolated tmp location — unique per compaction run to avoid conflicts
+    import uuid
+    run_id = uuid.uuid4().hex[:8]
+    tmp_path = f"{COMPACT_TMP}/{run_id}/{path.split('/trazas_v5/')[-1]}"
     df_write.coalesce(1).write.format("parquet").mode("overwrite").save(tmp_path)
 
-    # Swap: delete original partition, move compacted data
-    fs.delete(source, True)
-
-    # Move files from tmp to original location
+    # Atomic swap: rename original files out, move compacted in
+    # 1. List new compacted files from tmp
     tmp_dir = Path(tmp_path)
-    if fs.exists(tmp_dir):
-        file_list = fs.listStatus(tmp_dir)
-        for file_status in file_list:
-            file_path = file_status.getPath()
-            name = file_path.getName()
-            if name.startswith("part-") or name.endswith(".parquet"):
-                fs.mkdirs(source)
-                fs.rename(file_path, Path(path + "/" + name))
-        # Cleanup tmp
-        fs.delete(tmp_dir, True)
+    if not fs.exists(tmp_dir):
+        print(f"[ERROR] Tmp path not created: {tmp_path}")
+        return 0
 
-    print(f"[COMPACTED] {path}: {file_count} files -> 1 file ({row_count} rows)")
-    return file_count - 1
+    new_files = [f for f in fs.listStatus(tmp_dir)
+                 if f.getPath().getName().startswith("part-") or f.getPath().getName().endswith(".parquet")]
+
+    if not new_files:
+        print(f"[ERROR] No parquet files in tmp: {tmp_path}")
+        fs.delete(tmp_dir, True)
+        return 0
+
+    # 2. Delete original partition files (not the directory itself to avoid race)
+    for pf in parquet_files:
+        fs.delete(pf.getPath(), False)
+
+    # 3. Move compacted files into original partition
+    for nf in new_files:
+        target = Path(path + "/" + nf.getPath().getName())
+        fs.rename(nf.getPath(), target)
+
+    # 4. Cleanup tmp (including _SUCCESS, _temporary, etc.)
+    fs.delete(Path(f"{COMPACT_TMP}/{run_id}"), True)
+
+    print(f"[COMPACTED] {path}: {file_count} files -> {len(new_files)} file ({row_count} rows)")
+    return file_count - len(new_files)
 
 
 def discover_partitions(spark, base_path, date_filter=None, recent_hours=None):

@@ -1,7 +1,7 @@
 #!/bin/bash
 # Entrypoint: inicia cron en foreground y muestra logs
 echo "=== HDFS Compactor Cron Service ==="
-echo "Compaction scheduled every 6 hours (last 6h, excluding current)"
+echo "Compaction scheduled every 3 hours (last 3h, excluding current)"
 echo "Logs: /var/log/compactor.log"
 echo "==================================="
 

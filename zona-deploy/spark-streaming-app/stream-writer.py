@@ -50,6 +50,9 @@ wrapper_schema = StructType([
 def get_redis_client():
     return redis.Redis(host=REDIS_HOST, port=REDIS_PORT, decode_responses=True)
 
+MAX_HDFS_RETRIES = 10
+HDFS_RETRY_BASE_DELAY = 15  # segundos
+
 def cleanup_hdfs_on_startup(spark, path, checkpoint_path):
     """Limpia carpetas temporales y resuelve conflictos de Lease/FileNotFound."""
     try:
@@ -64,6 +67,14 @@ def cleanup_hdfs_on_startup(spark, path, checkpoint_path):
         if fs.exists(temp_path):
             print(f"[*] Limpiando archivos temporales en HDFS: {temp_path}")
             fs.delete(temp_path, True)
+
+        # 2. Recuperar leases abiertos (prevenir LeaseExpiredException)
+        try:
+            dfs = spark._jvm.org.apache.hadoop.hdfs.DistributedFileSystem
+            if isinstance(fs, dfs):
+                fs.recoverLease(Path(path))
+        except Exception:
+            pass
     except Exception as e:
         print(f"[!] Error durante la limpieza inicial: {e}")
 
@@ -196,35 +207,77 @@ def main():
 
             print(f"[*] [ZONA: {ZONA_ID}] Streams activos. Esperando datos...")
 
-            # Monitorear streams independientemente: si Redis falla, solo reiniciar Redis
+            # Monitorear streams independientemente con auto-restart
+            hdfs_failures = 0
+            redis_failures = 0
+
             while True:
                 time.sleep(10)
 
+                # --- HDFS stream monitor ---
                 if not hdfs_query.isActive:
+                    hdfs_failures += 1
                     exc = hdfs_query.exception()
-                    print(f"[!] HDFS stream terminó: {exc}")
-                    # HDFS es crítico — reiniciar todo
-                    if redis_query.isActive:
-                        redis_query.stop()
-                    break
+                    print(f"[!] HDFS stream terminó (intento {hdfs_failures}/{MAX_HDFS_RETRIES}): {exc}")
 
+                    if hdfs_failures > MAX_HDFS_RETRIES:
+                        print(f"[!] HDFS: máximo de reintentos alcanzado. Reiniciando proceso completo...")
+                        if redis_query.isActive:
+                            redis_query.stop()
+                        break
+
+                    # Backoff exponencial: 15s, 30s, 60s, 120s... max 5 min
+                    delay = min(HDFS_RETRY_BASE_DELAY * (2 ** (hdfs_failures - 1)), 300)
+                    print(f"[*] HDFS: esperando {delay}s antes de reintentar...")
+                    time.sleep(delay)
+
+                    # Limpiar _temporary antes de reiniciar
+                    cleanup_hdfs_on_startup(spark, OUTPUT_PATH_V3, CHECKPOINT_PATH_V3)
+
+                    try:
+                        hdfs_query = (
+                            df_processed.writeStream
+                            .foreachBatch(process_batch_hdfs)
+                            .option("checkpointLocation", f"{CHECKPOINT_PATH_V3}/hdfs")
+                            .trigger(processingTime="2 minutes")
+                            .start()
+                        )
+                        print(f"[*] HDFS stream reiniciado (intento {hdfs_failures})")
+                    except Exception as restart_err:
+                        print(f"[!] Error reiniciando HDFS stream: {restart_err}")
+                        continue
+                else:
+                    # Reset counter on success
+                    if hdfs_failures > 0:
+                        print(f"[*] HDFS stream estable después de {hdfs_failures} reintentos")
+                        hdfs_failures = 0
+
+                # --- Redis stream monitor ---
                 if not redis_query.isActive:
+                    redis_failures += 1
                     exc = redis_query.exception()
-                    print(f"[!] Redis stream terminó: {exc}. Reiniciando solo Redis...")
-                    time.sleep(5)
-                    redis_query = (
-                        df_processed.writeStream
-                        .foreachBatch(process_batch_redis)
-                        .option("checkpointLocation", f"{CHECKPOINT_PATH_V3}/redis")
-                        .trigger(processingTime="5 seconds")
-                        .start()
-                    )
-                    print(f"[*] Redis stream reiniciado")
+                    print(f"[!] Redis stream terminó (intento {redis_failures}): {exc}. Reiniciando...")
+                    delay = min(5 * (2 ** (redis_failures - 1)), 60)
+                    time.sleep(delay)
+                    try:
+                        redis_query = (
+                            df_processed.writeStream
+                            .foreachBatch(process_batch_redis)
+                            .option("checkpointLocation", f"{CHECKPOINT_PATH_V3}/redis")
+                            .trigger(processingTime="5 seconds")
+                            .start()
+                        )
+                        print(f"[*] Redis stream reiniciado")
+                    except Exception as restart_err:
+                        print(f"[!] Error reiniciando Redis stream: {restart_err}")
+                else:
+                    if redis_failures > 0:
+                        redis_failures = 0
 
         except Exception as e:
             print(f"[!] ERROR CRÍTICO EN RUNTIME: {e}")
-            print("[*] Reintentando en 15 segundos...")
-            time.sleep(15)
+            print("[*] Reintentando en 30 segundos...")
+            time.sleep(30)
 
 if __name__ == "__main__":
     main()

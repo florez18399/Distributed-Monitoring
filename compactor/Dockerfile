@@ -75,8 +75,8 @@ COPY entrypoint.sh .
 RUN chmod +x entrypoint.sh
 RUN mkdir -p ${HADOOP_CONF_DIR}
 
-# Cron: compactación cada 6 horas (las ultimas 6 horas, excluyendo la hora actual)
-RUN echo "0 */6 * * * SPARK_HOME=/opt/spark PATH=/opt/spark/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin JAVA_HOME=/usr/lib/jvm/java-11-openjdk-amd64 spark-submit --master 'local[*]' /app/compactor.py --recent 6 >> /var/log/compactor.log 2>&1" > /etc/cron.d/compactor \
+# Cron: compactación cada 3 horas (las ultimas 3 horas, excluyendo la hora actual)
+RUN echo "0 */3 * * * SPARK_HOME=/opt/spark PATH=/opt/spark/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin JAVA_HOME=/usr/lib/jvm/java-11-openjdk-amd64 spark-submit --master 'local[*]' /app/compactor.py --recent 3 >> /var/log/compactor.log 2>&1" > /etc/cron.d/compactor \
     && chmod 0644 /etc/cron.d/compactor \
     && crontab /etc/cron.d/compactor
 
